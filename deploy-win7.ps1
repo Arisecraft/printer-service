@@ -162,7 +162,15 @@ if (!$gitInstalled) {
     }
 }
 
+$isRepo = $false
 if (Test-Path ".git") {
+    $isRepo = $true
+} elseif (Test-Path "$repoFolder\.git") {
+    Set-Location $repoFolder
+    $isRepo = $true
+}
+
+if ($isRepo) {
     Write-Host "In git repository. Pulling changes..."
     $gitOutput = & git pull 2>&1
     if ($LASTEXITCODE -eq 0) {
