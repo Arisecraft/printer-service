@@ -227,7 +227,17 @@ if ($appProc.HasExited) {
 
 # 7. Windows Service Creation
 Write-Host "Setting up Printer Service..."
-$winSwUrl = "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW.NET2.exe"
+
+# Dynamic WinSW selection based on OS version
+$osMajor = [System.Environment]::OSVersion.Version.Major
+if ($osMajor -ge 10) {
+    Write-Status "EXECUTED" "Detected modern OS (Windows 10/11). Using WinSW .NET 4."
+    $winSwUrl = "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW.NET4.exe"
+} else {
+    Write-Status "EXECUTED" "Detected legacy OS (Windows 7/8). Using WinSW .NET 2."
+    $winSwUrl = "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW.NET2.exe"
+}
+
 $winSwExe = "printerservice.exe"
 
 $winSwDownloaded = $true
