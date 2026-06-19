@@ -210,7 +210,7 @@ if (Test-Path $nodeModulesPath) {
 
 # 6. Application Verification
 Write-Host "Verifying application starts properly..."
-$appProc = Start-Process node.exe -ArgumentList "index.js" -PassThru -WindowStyle Hidden
+$appProc = Start-Process node.exe -ArgumentList "index.js" -WorkingDirectory (Get-Location).Path -PassThru -WindowStyle Hidden
 Start-Sleep -Seconds 3
 
 if ($appProc.HasExited) {
@@ -239,12 +239,13 @@ if ($osMajor -ge 10) {
 }
 
 $winSwExe = "printerservice.exe"
+$winSwFullPath = Join-Path (Get-Location).Path $winSwExe
 
 $winSwDownloaded = $true
-if (Test-Path $winSwExe) {
+if (Test-Path $winSwFullPath) {
     Write-Status "SKIPPED" "WinSW wrapper already downloaded."
 } else {
-    $winSwDownloaded = Invoke-SafeDownload -Url $winSwUrl -Destination $winSwExe
+    $winSwDownloaded = Invoke-SafeDownload -Url $winSwUrl -Destination $winSwFullPath
     if ($winSwDownloaded) {
         Write-Status "EXECUTED" "Downloaded WinSW wrapper."
     }
@@ -269,16 +270,17 @@ if ($winSwDownloaded) {
   <onfailure action="restart" delay="10 sec"/>
 </service>
 "@
-    Set-Content -Path "printerservice.xml" -Value $xmlConfig
+    $xmlConfigPath = Join-Path (Get-Location).Path "printerservice.xml"
+    Set-Content -Path $xmlConfigPath -Value $xmlConfig
     Write-Status "EXECUTED" "Created service configuration file."
 
     $serviceExists = Get-WmiObject Win32_Service -Filter "Name='printerservice'"
     if ($serviceExists) {
         Write-Status "SKIPPED" "Printer service is already installed."
     } else {
-        $installProc = Start-Process -FilePath ".\$winSwExe" -ArgumentList "install" -Wait -PassThru -WindowStyle Hidden
+        $installProc = Start-Process -FilePath $winSwFullPath -ArgumentList "install" -WorkingDirectory (Get-Location).Path -Wait -PassThru -WindowStyle Hidden
         if ($installProc.ExitCode -eq 0) {
-            Start-Process -FilePath ".\$winSwExe" -ArgumentList "start" -Wait -WindowStyle Hidden
+            Start-Process -FilePath $winSwFullPath -ArgumentList "start" -WorkingDirectory (Get-Location).Path -Wait -WindowStyle Hidden
             Write-Status "EXECUTED" "Printer service installed and started."
         } else {
             Write-Status "FAILED" "Failed to install Printer service."
