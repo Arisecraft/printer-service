@@ -323,7 +323,7 @@ if ($cfService) {
     }
 
     if ($cfDownloaded) {
-        if ([string]::IsNullOrWhiteSpace($TunnelToken)) {
+        if (!$TunnelToken -or $TunnelToken.Trim() -eq "") {
             Write-Status "FAILED" "No tunnel token provided. Service installation skipped."
         } else {
             Write-Host "Installing Cloudflared service..."
