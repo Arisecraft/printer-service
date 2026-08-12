@@ -32,7 +32,7 @@ async function initializeBrowser() {
 
 
 // Function to render HTML to an image using Puppeteer
-async function renderHtmlToImage(html) {
+async function renderHtmlToImage(html, targetWidth = 576) {
     let page;
     try {
 
@@ -53,7 +53,8 @@ async function renderHtmlToImage(html) {
         await page.setContent(html);
 
         // Set a reasonable width for the page
-        await page.setViewport({ width: 600, height: 100 }); // Temporary height to start with
+        const width = typeof targetWidth === 'number' && targetWidth > 0 ? targetWidth : 576;
+        await page.setViewport({ width: width, height: 100 }); // Temporary height to start with
 
         // Wait for the page to load and calculate the height based on content
         const contentHeight = await page.evaluate(() => {
@@ -63,7 +64,7 @@ async function renderHtmlToImage(html) {
         });
 
         // Adjust viewport to auto height based on content
-        await page.setViewport({ width: 580, height: contentHeight });
+        await page.setViewport({ width: width, height: contentHeight });
 
         // Capture the screenshot of the rendered HTML
         await page.screenshot({ path: tempFilePath });

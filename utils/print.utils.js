@@ -51,6 +51,70 @@ const getPrinter = (printerInfo) => {
   return printerDevice;
 };
 
+function printRasterOptimized(printer, image, options = {}) {
+  const maxSliceHeight = options.sliceHeight || 200;
+  const speedLevel = options.speedLevel || 9; // 1 (slowest) to 9 (fastest)
+
+  // 1. Hardware Initialize (ESC @) -> Reset modes and clear stale buffers
+  printer.buffer.write(Buffer.from([0x1b, 0x40]));
+
+  // 2. Select Print Speed (GS ( K) -> 1D 28 4B 02 00 31 <speedLevel>
+  // High speed setting for Epson and standard ESC/POS receipt printers
+  if (speedLevel >= 1 && speedLevel <= 13) {
+    printer.buffer.write(Buffer.from([0x1d, 0x28, 0x4b, 0x02, 0x00, 0x31, speedLevel]));
+  }
+
+  // 3. Select Print Density (GS ( K) -> 1D 28 4B 02 00 32 00 (Standard density)
+  printer.buffer.write(Buffer.from([0x1d, 0x28, 0x4b, 0x02, 0x00, 0x32, 0x00]));
+
+  // 4. Set Line Spacing to 0 (ESC 3 0) -> Eliminates line-feed gaps between graphic bands
+  printer.buffer.write(Buffer.from([0x1b, 0x33, 0x00]));
+
+  const width = image.size.width;
+  const totalHeight = image.size.height;
+  const n = Math.ceil(width / 8);
+
+  // 5. Slice image vertically into optimal height bands to avoid printer receive buffer overflow
+  for (let startY = 0; startY < totalHeight; startY += maxSliceHeight) {
+    const currentHeight = Math.min(maxSliceHeight, totalHeight - startY);
+    const sliceData = image.data.slice(startY * width, (startY + currentHeight) * width);
+
+    const rasterData = new Uint8Array(n * currentHeight);
+
+    for (let y = 0; y < currentHeight; y++) {
+      for (let x = 0; x < n; x++) {
+        for (let b = 0; b < 8; b++) {
+          const i = x * 8 + b;
+          if (i < width) {
+            if (sliceData[y * width + i]) {
+              rasterData[y * n + x] |= (0x80 >> (b & 0x7));
+            }
+          }
+        }
+      }
+    }
+
+    // Write GS v 0 raster header for this slice: 0x1d 0x76 0x30 0x00
+    printer.buffer.write(Buffer.from([0x1d, 0x76, 0x30, 0x00]));
+
+    // Width (n) in 16-bit Little Endian
+    const widthBuf = Buffer.alloc(2);
+    widthBuf.writeUInt16LE(n, 0);
+    printer.buffer.write(widthBuf);
+
+    // Height (currentHeight) in 16-bit Little Endian
+    const heightBuf = Buffer.alloc(2);
+    heightBuf.writeUInt16LE(currentHeight, 0);
+    printer.buffer.write(heightBuf);
+
+    // Raster pixel payload
+    printer.buffer.write(Buffer.from(rasterData));
+  }
+
+  // 6. Restore line spacing to default (ESC 2)
+  printer.buffer.write(Buffer.from([0x1b, 0x32]));
+}
+
 async function printJob(job) {
   const printerDevice = getPrinter(job.printer_info);
 
@@ -84,7 +148,8 @@ async function printJob(job) {
   }
 
   try {
-    const imagePath = await renderHtmlToImage(html);
+    const targetWidth = (job.printer_info && job.printer_info.paper_width === '58mm') ? 384 : (job.targetWidth || 576);
+    const imagePath = await renderHtmlToImage(html, targetWidth);
     console.log("Generated image for printing:", imagePath);
 
     return new Promise((resolve, reject) => {
@@ -111,8 +176,13 @@ async function printJob(job) {
               printerDevice.write([0x1b, 0x1e]);
             }
 
+            // Print raster using hardware speed initialization and chunking
+            printRasterOptimized(printer, image, {
+              speedLevel: (job.printer_info && job.printer_info.speed_level) || 9,
+              sliceHeight: (job.printer_info && job.printer_info.slice_height) || 200
+            });
+
             printer
-              .raster(image, "normal")
               .cut()
               .close(() => {
                 clearTimeout(timeout);
