@@ -14,9 +14,30 @@ printerRouter.post("/print", async (req, res) => {
 
     const jobPromises = printJobs.map((job) => {
       return new Promise((resolve, reject) => {
-        const jobId = job.id || `job_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        const jobId = job.id || job.kot_id || job.order_id || job.bill_id || null;
+
+        // Check if an identical or duplicate job is already queued/waiting
+        const existingJob = printQueue.find(j => {
+          if (jobId && j.id === jobId) return true;
+          if (!jobId && j.printBody === job.printBody && JSON.stringify(j.printer_info) === JSON.stringify(job.printer_info)) {
+            return true;
+          }
+          return false;
+        });
+
+        if (existingJob) {
+          console.log(`[QUEUE] Duplicate print job ignored (ID: ${existingJob.id}). Already in queue.`);
+          return resolve({
+            queued: true,
+            duplicate: true,
+            status: existingJob.status,
+            message: "Print job is already queued for printing"
+          });
+        }
+
+        const finalJobId = jobId || `job_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
         const queueJob = {
-          id: jobId,
+          id: finalJobId,
           printer_info: job.printer_info,
           printBody: job.printBody,
           isBuzzerRequired: job.isBuzzerRequired,
