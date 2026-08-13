@@ -1,21 +1,38 @@
 const express = require("express");
-const { printQueue, processQueue, scanNetworkPrinters } = require("../../utils/print.utils");
+const { printQueue, processQueue, scanNetworkPrinters, getQueueStatus, clearQueue, retryQueue, saveQueueToDisk } = require("../../utils/print.utils");
 const escpos = require("escpos");
 escpos.USB = require("escpos-usb");
 
 const printerRouter = express.Router();
 
 printerRouter.post("/print", async (req, res) => {
-
   try {
     const printJobs = req.body.printJobs;
+    if (!Array.isArray(printJobs) || printJobs.length === 0) {
+      return res.status(400).json({ success: false, message: "No printJobs provided in request body" });
+    }
+
     const jobPromises = printJobs.map((job) => {
       return new Promise((resolve, reject) => {
-        printQueue.push({
-          ...job,
-          _onComplete: resolve,
-          _onError: reject,
-        });
+        const jobId = job.id || `job_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        const queueJob = {
+          id: jobId,
+          printer_info: job.printer_info,
+          printBody: job.printBody,
+          isBuzzerRequired: job.isBuzzerRequired,
+          targetWidth: job.targetWidth,
+          status: "pending",
+          createdAt: Date.now(),
+          retryCount: 0,
+          _onComplete: (err, result) => {
+            if (err) reject(err);
+            else resolve(result);
+          },
+          _onError: (err) => reject(err),
+        };
+
+        printQueue.push(queueJob);
+        saveQueueToDisk();
         processQueue();
       });
     });
@@ -48,10 +65,44 @@ printerRouter.post("/print", async (req, res) => {
 
     res.json({
       success: true,
-      message: "All print jobs processed successfully",
+      message: "All print jobs processed or queued successfully",
     });
   } catch (e) {
     console.error("Unexpected error:", e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// GET /v1/printer/queue - Get current print queue status
+printerRouter.get("/queue", (req, res) => {
+  try {
+    const queue = getQueueStatus();
+    res.json({
+      success: true,
+      count: queue.length,
+      queue
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// POST /v1/printer/queue/clear - Clear print queue
+printerRouter.post("/queue/clear", (req, res) => {
+  try {
+    const result = clearQueue();
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// POST /v1/printer/queue/retry - Force immediate retry of queued jobs
+printerRouter.post("/queue/retry", (req, res) => {
+  try {
+    const result = retryQueue();
+    res.json(result);
+  } catch (e) {
     res.status(500).json({ success: false, message: e.message });
   }
 });
